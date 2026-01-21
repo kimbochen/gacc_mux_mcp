@@ -1,1 +1,1 @@
-web: MCP_TRANSPORT=sse python main.py
+web: MCP_TRANSPORT=http python main.py

@@ -278,14 +278,13 @@ def calendar_delete_event(event_id: str, calendar_id: str = "primary", account: 
 
 if __name__ == "__main__":
     import sys
-    # Use SSE transport for remote deployment, stdio for local
+    # Use HTTP transport for remote deployment, stdio for local
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
-    if transport == "sse":
-        port = os.environ.get("PORT", "8000")
-        print(f"Starting MCP server on 0.0.0.0:{port}", flush=True)
+    if transport in ("sse", "http"):
+        host = os.environ.get("HOST", "0.0.0.0")
+        port = int(os.environ.get("PORT", "8000"))
+        print(f"Starting MCP server on {host}:{port} with {transport} transport", flush=True)
         sys.stdout.flush()
-        # FastMCP reads HOST/PORT from environment variables
-        os.environ.setdefault("HOST", "0.0.0.0")
-        mcp.run(transport="sse")
+        mcp.run(transport=transport, host=host, port=port)
     else:
         mcp.run()
