@@ -1,0 +1,12 @@
+[project]
+name = "personal-gmail-mcp"
+version = "0.1.0"
+description = "Gmail and Calendar MCP Server"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-api-python-client>=2.188.0",
+    "google-auth-oauthlib>=1.2.4",
+    "mcp[cli]>=1.25.0",
+    "uvicorn>=0.30.0",
+]
