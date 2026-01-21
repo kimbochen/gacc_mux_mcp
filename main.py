@@ -8,10 +8,11 @@ from googleapiclient.discovery import build
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.github import GitHubProvider
 
-# Scopes - Gmail read-only, Calendar full access
+# Scopes - Gmail read-only, Calendar full access, Tasks full access
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/tasks",
 ]
 
 CREDENTIALS_PATH = Path(__file__).parent / "credentials.json"
@@ -81,6 +82,9 @@ def get_gmail(account: str = "personal"):
 
 def get_calendar(account: str = "personal"):
     return build("calendar", "v3", credentials=get_credentials(account))
+
+def get_tasks(account: str = "personal"):
+    return build("tasks", "v1", credentials=get_credentials(account))
 
 # OAuth configuration for MCP server access
 MCP_OAUTH_CLIENT_ID = os.environ.get("MCP_OAUTH_CLIENT_ID")
@@ -303,6 +307,173 @@ def calendar_delete_event(event_id: str, calendar_id: str = "primary", account: 
     cal = get_calendar(account)
     cal.events().delete(calendarId=calendar_id, eventId=event_id).execute()
     return json.dumps({"deleted": True, "event_id": event_id})
+
+
+# ============== Tasks Tools ==============
+
+@mcp.tool()
+def tasks_list_tasklists(account: str = "personal") -> str:
+    """List all task lists for the user. Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+    results = tasks.tasklists().list().execute()
+    tasklists = results.get("items", [])
+
+    output = []
+    for tl in tasklists:
+        output.append({
+            "id": tl["id"],
+            "title": tl.get("title", ""),
+            "updated": tl.get("updated", "")
+        })
+
+    return json.dumps(output, indent=2)
+
+
+@mcp.tool()
+def tasks_list_tasks(
+    tasklist_id: str = "@default",
+    show_completed: bool = False,
+    show_hidden: bool = False,
+    max_results: int = 100,
+    account: str = "personal"
+) -> str:
+    """List tasks from a task list. Use '@default' for the default task list. Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+
+    results = tasks.tasks().list(
+        tasklist=tasklist_id,
+        showCompleted=show_completed,
+        showHidden=show_hidden,
+        maxResults=max_results
+    ).execute()
+
+    items = results.get("items", [])
+
+    output = []
+    for task in items:
+        output.append({
+            "id": task["id"],
+            "title": task.get("title", ""),
+            "status": task.get("status", ""),
+            "due": task.get("due", ""),
+            "notes": task.get("notes", ""),
+            "completed": task.get("completed", ""),
+            "parent": task.get("parent", ""),
+            "position": task.get("position", "")
+        })
+
+    return json.dumps(output, indent=2)
+
+
+@mcp.tool()
+def tasks_get_task(task_id: str, tasklist_id: str = "@default", account: str = "personal") -> str:
+    """Get a specific task by ID. Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+    task = tasks.tasks().get(tasklist=tasklist_id, task=task_id).execute()
+
+    return json.dumps({
+        "id": task["id"],
+        "title": task.get("title", ""),
+        "status": task.get("status", ""),
+        "due": task.get("due", ""),
+        "notes": task.get("notes", ""),
+        "completed": task.get("completed", ""),
+        "parent": task.get("parent", ""),
+        "links": task.get("links", [])
+    }, indent=2)
+
+
+@mcp.tool()
+def tasks_create_task(
+    title: str,
+    tasklist_id: str = "@default",
+    notes: str = None,
+    due: str = None,
+    account: str = "personal"
+) -> str:
+    """Create a new task. 'due' should be RFC3339 date format (e.g., '2025-01-20T00:00:00Z'). Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+
+    task_body = {"title": title}
+    if notes:
+        task_body["notes"] = notes
+    if due:
+        task_body["due"] = due
+
+    result = tasks.tasks().insert(tasklist=tasklist_id, body=task_body).execute()
+
+    return json.dumps({
+        "id": result["id"],
+        "title": result.get("title", ""),
+        "selfLink": result.get("selfLink", "")
+    }, indent=2)
+
+
+@mcp.tool()
+def tasks_update_task(
+    task_id: str,
+    tasklist_id: str = "@default",
+    title: str = None,
+    notes: str = None,
+    due: str = None,
+    status: str = None,
+    account: str = "personal"
+) -> str:
+    """Update an existing task. Set status to 'completed' to mark as done, or 'needsAction' to mark as incomplete. Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+
+    # Get existing task
+    task = tasks.tasks().get(tasklist=tasklist_id, task=task_id).execute()
+
+    if title:
+        task["title"] = title
+    if notes is not None:
+        task["notes"] = notes
+    if due is not None:
+        task["due"] = due if due else None
+    if status:
+        task["status"] = status
+        if status == "completed":
+            from datetime import datetime, timezone
+            task["completed"] = datetime.now(timezone.utc).isoformat()
+        elif status == "needsAction":
+            task.pop("completed", None)
+
+    result = tasks.tasks().update(tasklist=tasklist_id, task=task_id, body=task).execute()
+
+    return json.dumps({
+        "id": result["id"],
+        "title": result.get("title", ""),
+        "status": result.get("status", ""),
+        "updated": result.get("updated", "")
+    }, indent=2)
+
+
+@mcp.tool()
+def tasks_delete_task(task_id: str, tasklist_id: str = "@default", account: str = "personal") -> str:
+    """Delete a task. Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+    tasks.tasks().delete(tasklist=tasklist_id, task=task_id).execute()
+    return json.dumps({"deleted": True, "task_id": task_id})
+
+
+@mcp.tool()
+def tasks_complete_task(task_id: str, tasklist_id: str = "@default", account: str = "personal") -> str:
+    """Mark a task as completed. Account can be 'personal', 'school', or 'work'."""
+    return tasks_update_task(task_id=task_id, tasklist_id=tasklist_id, status="completed", account=account)
+
+
+@mcp.tool()
+def tasks_create_tasklist(title: str, account: str = "personal") -> str:
+    """Create a new task list. Account can be 'personal', 'school', or 'work'."""
+    tasks = get_tasks(account)
+    result = tasks.tasklists().insert(body={"title": title}).execute()
+
+    return json.dumps({
+        "id": result["id"],
+        "title": result.get("title", ""),
+        "selfLink": result.get("selfLink", "")
+    }, indent=2)
 
 
 if __name__ == "__main__":
