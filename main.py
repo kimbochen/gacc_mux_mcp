@@ -33,6 +33,7 @@ ENV_TOKENS = {
 
 def get_credentials(account: str = "personal") -> Credentials:
     """Get or refresh Google credentials for a specific account."""
+    import sys
     if account not in ACCOUNTS:
         raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
 
@@ -41,11 +42,14 @@ def get_credentials(account: str = "personal") -> Credentials:
 
     # First, try environment variable (for deployed environments)
     env_var = ENV_TOKENS.get(account)
+    print(f"[DEBUG] Looking for {env_var}, exists: {bool(os.environ.get(env_var))}", file=sys.stderr)
     if env_var and os.environ.get(env_var):
         try:
             token_data = json.loads(os.environ[env_var])
             creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+            print(f"[DEBUG] Loaded credentials for {account}", file=sys.stderr)
         except Exception as e:
+            print(f"[DEBUG] Failed to parse token for {account}: {e}", file=sys.stderr)
             raise RuntimeError(f"Failed to parse token for {account}: {e}")
     # Fall back to file-based tokens (for local development)
     elif not is_deployed and ACCOUNTS[account].exists():
