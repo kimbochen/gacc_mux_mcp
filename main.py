@@ -6,6 +6,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.github import GitHubOAuthProvider
 
 # Scopes - Gmail read-only, Calendar full access
 SCOPES = [
@@ -66,8 +67,21 @@ def get_gmail(account: str = "personal"):
 def get_calendar(account: str = "personal"):
     return build("calendar", "v3", credentials=get_credentials(account))
 
-# Initialize MCP server
-mcp = FastMCP("gmail-calendar-mcp")
+# OAuth configuration for MCP server access
+MCP_OAUTH_CLIENT_ID = os.environ.get("MCP_OAUTH_CLIENT_ID")
+MCP_OAUTH_CLIENT_SECRET = os.environ.get("MCP_OAUTH_CLIENT_SECRET")
+MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8000")
+
+# Initialize MCP server with optional OAuth
+if MCP_OAUTH_CLIENT_ID and MCP_OAUTH_CLIENT_SECRET:
+    auth = GitHubOAuthProvider(
+        client_id=MCP_OAUTH_CLIENT_ID,
+        client_secret=MCP_OAUTH_CLIENT_SECRET,
+        base_url=MCP_BASE_URL,
+    )
+    mcp = FastMCP("gmail-calendar-mcp", auth=auth)
+else:
+    mcp = FastMCP("gmail-calendar-mcp")
 
 # ============== Gmail Tools ==============
 
