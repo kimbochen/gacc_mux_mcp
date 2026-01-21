@@ -6,7 +6,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.github import GitHubOAuthProvider
+from fastmcp.server.auth.providers.github import GitHubProvider
 
 # Scopes - Gmail read-only, Calendar full access
 SCOPES = [
@@ -74,7 +74,7 @@ MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8000")
 
 # Initialize MCP server with optional OAuth
 if MCP_OAUTH_CLIENT_ID and MCP_OAUTH_CLIENT_SECRET:
-    auth = GitHubOAuthProvider(
+    auth = GitHubProvider(
         client_id=MCP_OAUTH_CLIENT_ID,
         client_secret=MCP_OAUTH_CLIENT_SECRET,
         base_url=MCP_BASE_URL,
