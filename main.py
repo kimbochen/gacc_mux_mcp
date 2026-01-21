@@ -37,27 +37,38 @@ def get_credentials(account: str = "personal") -> Credentials:
         raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
 
     creds = None
+    is_deployed = os.environ.get("MCP_TRANSPORT") in ("sse", "http")
 
     # First, try environment variable (for deployed environments)
     env_var = ENV_TOKENS.get(account)
     if env_var and os.environ.get(env_var):
-        token_data = json.loads(os.environ[env_var])
-        creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+        try:
+            token_data = json.loads(os.environ[env_var])
+            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse token for {account}: {e}")
     # Fall back to file-based tokens (for local development)
-    elif ACCOUNTS[account].exists():
+    elif not is_deployed and ACCOUNTS[account].exists():
         creds = Credentials.from_authorized_user_file(str(ACCOUNTS[account]), SCOPES)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+    if not creds:
+        if is_deployed:
+            raise RuntimeError(f"No token found for {account}. Set {env_var} environment variable.")
         else:
-            # Only allow interactive flow in local development
-            if os.environ.get(env_var):
-                raise RuntimeError(f"Token for {account} is invalid and cannot be refreshed in deployed environment")
+            # Local development: run OAuth flow
             print(f"Please authorize the {account} account in your browser...", file=__import__('sys').stderr)
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_PATH), SCOPES)
             creds = flow.run_local_server(port=0)
             ACCOUNTS[account].write_text(creds.to_json())
+
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                raise RuntimeError(f"Failed to refresh token for {account}: {e}. You may need to regenerate the token locally and update the environment variable.")
+        else:
+            raise RuntimeError(f"Token for {account} is invalid and has no refresh token.")
 
     return creds
 
