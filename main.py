@@ -6,7 +6,6 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.github import GitHubProvider
 
 # Scopes - Gmail read-only, Calendar full access, Tasks full access
 SCOPES = [
@@ -17,63 +16,37 @@ SCOPES = [
 
 CREDENTIALS_PATH = Path(__file__).parent / "credentials.json"
 
-# Account configurations (file-based for local dev)
+# Account configurations
 ACCOUNTS = {
     "personal": Path(__file__).parent / "token_personal.json",
     "school": Path(__file__).parent / "token_school.json",
     "work": Path(__file__).parent / "token_work.json",
 }
 
-# Environment variable names for deployed tokens
-ENV_TOKENS = {
-    "personal": "GOOGLE_TOKEN_PERSONAL",
-    "school": "GOOGLE_TOKEN_SCHOOL",
-    "work": "GOOGLE_TOKEN_WORK",
-}
-
 
 def get_credentials(account: str = "personal") -> Credentials:
     """Get or refresh Google credentials for a specific account."""
-    import sys
     if account not in ACCOUNTS:
         raise ValueError(f"Unknown account: {account}. Valid accounts: {list(ACCOUNTS.keys())}")
 
     creds = None
-    is_deployed = os.environ.get("MCP_TRANSPORT") in ("sse", "http")
+    token_path = ACCOUNTS[account]
 
-    # First, try environment variable (for deployed environments)
-    env_var = ENV_TOKENS.get(account)
-    print(f"[DEBUG] Looking for {env_var}, exists: {bool(os.environ.get(env_var))}", file=sys.stderr)
-    if env_var and os.environ.get(env_var):
-        try:
-            token_data = json.loads(os.environ[env_var])
-            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-            print(f"[DEBUG] Loaded credentials for {account}", file=sys.stderr)
-        except Exception as e:
-            print(f"[DEBUG] Failed to parse token for {account}: {e}", file=sys.stderr)
-            raise RuntimeError(f"Failed to parse token for {account}: {e}")
-    # Fall back to file-based tokens (for local development)
-    elif not is_deployed and ACCOUNTS[account].exists():
-        creds = Credentials.from_authorized_user_file(str(ACCOUNTS[account]), SCOPES)
+    # Load from file-based tokens
+    if token_path.exists():
+        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
 
-    if not creds:
-        if is_deployed:
-            raise RuntimeError(f"No token found for {account}. Set {env_var} environment variable.")
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            # Save refreshed token
+            token_path.write_text(creds.to_json())
         else:
-            # Local development: run OAuth flow
+            # Run OAuth flow
             print(f"Please authorize the {account} account in your browser...", file=__import__('sys').stderr)
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_PATH), SCOPES)
             creds = flow.run_local_server(port=0)
-            ACCOUNTS[account].write_text(creds.to_json())
-
-    if not creds.valid:
-        if creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except Exception as e:
-                raise RuntimeError(f"Failed to refresh token for {account}: {e}. You may need to regenerate the token locally and update the environment variable.")
-        else:
-            raise RuntimeError(f"Token for {account} is invalid and has no refresh token.")
+            token_path.write_text(creds.to_json())
 
     return creds
 
@@ -86,21 +59,8 @@ def get_calendar(account: str = "personal"):
 def get_tasks(account: str = "personal"):
     return build("tasks", "v1", credentials=get_credentials(account))
 
-# OAuth configuration for MCP server access
-MCP_OAUTH_CLIENT_ID = os.environ.get("MCP_OAUTH_CLIENT_ID")
-MCP_OAUTH_CLIENT_SECRET = os.environ.get("MCP_OAUTH_CLIENT_SECRET")
-MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:8000")
-
-# Initialize MCP server with optional OAuth
-if MCP_OAUTH_CLIENT_ID and MCP_OAUTH_CLIENT_SECRET:
-    auth = GitHubProvider(
-        client_id=MCP_OAUTH_CLIENT_ID,
-        client_secret=MCP_OAUTH_CLIENT_SECRET,
-        base_url=MCP_BASE_URL,
-    )
-    mcp = FastMCP("gmail-calendar-mcp", auth=auth)
-else:
-    mcp = FastMCP("gmail-calendar-mcp")
+# Initialize MCP server (no OAuth for local use)
+mcp = FastMCP("gmail-calendar-mcp")
 
 # ============== Gmail Tools ==============
 
@@ -477,14 +437,5 @@ def tasks_create_tasklist(title: str, account: str = "personal") -> str:
 
 
 if __name__ == "__main__":
-    import sys
-    # Use HTTP transport for remote deployment, stdio for local
-    transport = os.environ.get("MCP_TRANSPORT", "stdio")
-    if transport in ("sse", "http"):
-        host = os.environ.get("HOST", "0.0.0.0")
-        port = int(os.environ.get("PORT", "8000"))
-        print(f"Starting MCP server on {host}:{port} with {transport} transport", flush=True)
-        sys.stdout.flush()
-        mcp.run(transport=transport, host=host, port=port)
-    else:
-        mcp.run()
+    # Run with stdio transport for Claude Desktop/macOS app
+    mcp.run()
